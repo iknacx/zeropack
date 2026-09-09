@@ -1,0 +1,5 @@
+Language: C
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100
+SortIncludes: true
