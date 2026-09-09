@@ -1,0 +1,9 @@
+[package]
+name = "Tesis"
+version = "0.1.0"
+entrypoint = "main.typ"
+authors = ["Ignacio Antonio Ibarra Barrios"]
+description = "Evaluación comparativa de formatos de serialización y propuesta de un protocolo binario para dispositivos con restricciones de memoria"
+
+[tools.tinymist]
+export-pdf = "on-save"
