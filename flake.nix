@@ -19,6 +19,7 @@
         packages = with pkgs; [
           typst tinymist socat
           python3Packages.bpython
+          bun typescript-language-server
           clang-tools idf.esp-idf-full 
         ];
       };
