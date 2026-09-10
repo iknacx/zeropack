@@ -105,20 +105,7 @@ void tcp_connection(void) {
         return;
     }
 
-    const char* ping = "ping\n";
-    send(sock, ping, strlen(ping), 0);
-
-    char buffer[256] = {0};
-    while (1) {
-        int len = recv(sock, buffer, sizeof(buffer) - 1, 0);
-        if (len <= 0) break;
-
-        buffer[len] = '\0';
-        if (strncmp("pong", buffer, 4) == 0) {
-            ESP_LOGI(TAG, "pong received");
-            break;
-        }
-    }
+    send_handshake(sock, 0, &zp_schema);
 
     close(sock);
 }

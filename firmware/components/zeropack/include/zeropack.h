@@ -49,6 +49,23 @@ typedef struct {
     uint16_t action_count;
 } zp_schema_t;
 
+typedef struct __attribute__((packed)) {
+    uint8_t magic;
+    uint8_t byteord : 1;
+    uint8_t reserved : 7;
+
+    uint16_t pool_size;
+    uint16_t type_count;
+    uint16_t action_count;
+} zp_handshake_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t action;
+    uint8_t type_id;
+    uint16_t is_array : 1;
+    uint16_t array_len : 15;
+} zp_header_t;
+
 #define MAKE_FIELD(S, type, name) type name;
 #define MAKE_ARRAY(S, type, name, len) type name[len];
 #define DEFINE_TYPE(StructName, FieldsMacro)            \
@@ -110,3 +127,5 @@ typedef struct {
         .action_count = sizeof(__zp_actions) / sizeof(__zp_actions[0])  \
     };
 // clang-format on
+
+void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema);
