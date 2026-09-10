@@ -20,6 +20,25 @@
 #include "nvs_flash.h"
 #include "portmacro.h"
 #include "sdkconfig.h"
+#include "zeropack.h"
+
+// Tipo de prueba
+#define TYPE_FIELDS(S, F, A) \
+    F(S, u32, f1)            \
+    F(S, u8, f2)             \
+    A(S, u16, f3, 16)
+
+// Lista de tipos para usar
+#define TYPES(X) X(test_type_t, TYPE_FIELDS)
+
+// Acciones del microcontrolador
+#define ACTIONS(V, T, A) \
+    V(ACTION_LED_ON)     \
+    V(ACTION_LED_OFF)    \
+    A(ACTION_ECHO, u8, 16)
+
+// Finalizar con la creación de los tipos y acciones
+ZP_DECLARE(TYPES, ACTIONS)
 
 // FIXME: buscar una mejor manera de guardar esto
 #define ADDR "192.168.100.2"
@@ -113,6 +132,10 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    test_type_t tt;
+    tt.f1 = 2;
+    tt.f3[0] = 'a';
 
     wifi_init_sta();
     tcp_connection();

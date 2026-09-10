@@ -3,4 +3,5 @@ idf_component_register(
   INCLUDE_DIRS "."
   REQUIRES
     nvs_flash esp_event
-    lwip esp_wifi esp_netif)
+    lwip esp_wifi esp_netif
+    zeropack)
