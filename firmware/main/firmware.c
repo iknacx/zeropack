@@ -1,5 +1,8 @@
 #include <stdint.h>
+#include <string.h>
+#include <unistd.h>
 
+#include "cc.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_event_base.h"
@@ -11,10 +14,16 @@
 #include "esp_wifi_types_generic.h"
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "portmacro.h"
 #include "sdkconfig.h"
+
+// FIXME: buscar una mejor manera de guardar esto
+#define ADDR "192.168.100.2"
+#define PORT 1234
 
 static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
@@ -57,6 +66,43 @@ void wifi_init_sta(void) {
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
+void tcp_connection(void) {
+    static const char* TAG = "tcp_conn";
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "Could not open socket: %d", sock);
+        return;
+    }
+
+    struct sockaddr_in addr;
+    addr.sin_addr.s_addr = inet_addr(ADDR);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PORT);
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+        ESP_LOGE(TAG, "Could not connect to %s:%d", ADDR, PORT);
+        close(sock);
+        return;
+    }
+
+    const char* ping = "ping\n";
+    send(sock, ping, strlen(ping), 0);
+
+    char buffer[256] = {0};
+    while (1) {
+        int len = recv(sock, buffer, sizeof(buffer) - 1, 0);
+        if (len <= 0) break;
+
+        buffer[len] = '\0';
+        if (strncmp("pong", buffer, 4) == 0) {
+            ESP_LOGI(TAG, "pong received");
+            break;
+        }
+    }
+
+    close(sock);
+}
+
 void app_main(void) {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -69,4 +115,5 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     wifi_init_sta();
+    tcp_connection();
 }
