@@ -39,6 +39,7 @@
 
 // Finalizar con la creación de los tipos y acciones
 ZP_DECLARE(TYPES, ACTIONS)
+ZP_GENERATE_SCHEMA(TYPES, ACTIONS)
 
 // FIXME: buscar una mejor manera de guardar esto
 #define ADDR "192.168.100.2"
@@ -123,6 +124,8 @@ void tcp_connection(void) {
 }
 
 void app_main(void) {
+    static const char* TAG = "main";
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -133,10 +136,22 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    test_type_t tt;
-    tt.f1 = 2;
-    tt.f3[0] = 'a';
-
     wifi_init_sta();
+
+    ESP_LOGI(TAG, "type count: %d", zp_schema.type_count);
+    for (int i = 0; i < zp_schema.type_count; i++) {
+        const struct_desc_t* t = &zp_schema.types[i];
+        ESP_LOGI(TAG, "type %s (ID: %d)", t->name, t->id);
+        for (int j = 0; j < t->count; j++) {
+            const field_desc_t* f = &t->fields[j];
+            ESP_LOGI(TAG, "\tfield %s", f->name);
+        }
+    }
+
+    for (int i = 0; i < zp_schema.action_count; i++) {
+        const action_desc_t* a = &zp_schema.actions[i];
+        ESP_LOGI(TAG, "action %s (payload type: %d, array?: %d)", a->name, a->type, a->is_array);
+    }
+
     tcp_connection();
 }

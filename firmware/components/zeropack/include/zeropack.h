@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 // clang-format off
@@ -23,6 +24,7 @@ typedef char*    poolstr_t;
 typedef struct {
     uint8_t type;
     uint16_t offset;
+    uint16_t length;
     const char* name;
 } field_desc_t;
 
@@ -30,6 +32,7 @@ typedef struct {
     uint8_t id;
     uint8_t count;
     uint16_t size;
+    const char* name;
     const field_desc_t* fields;
 } struct_desc_t;
 
@@ -38,6 +41,13 @@ typedef struct {
     uint8_t is_array;
     const char* name;
 } action_desc_t;
+
+typedef struct {
+    const struct_desc_t* types;
+    uint16_t type_count;
+    const action_desc_t* actions;
+    uint16_t action_count;
+} zp_schema_t;
 
 #define MAKE_FIELD(S, type, name) type name;
 #define MAKE_ARRAY(S, type, name, len) type name[len];
@@ -66,3 +76,37 @@ typedef struct {
     ZP_DECLARE_STRUCTS(TypesMacro)           \
     ZP_DECLARE_TYPE_IDS(TypesMacro)          \
     ZP_DECLARE_ACTION_IDS(ActionsMacro)
+
+#define FIELD_DESC(S, type, name) {TYPE_ID_##type, offsetof(S, name), 0, #name},
+#define ARRAY_DESC(S, type, name, len) {TYPE_ID_##type, offsetof(S, name), len, #name},
+
+#define MAKE_STRUCT_META(StructName, FieldsMacro)                                               \
+    {.id = TYPE_ID_##StructName,                                                                \
+     .size = sizeof(StructName),                                                                \
+     .count = sizeof((const field_desc_t[]){FieldsMacro(StructName, FIELD_DESC, ARRAY_DESC)}) / \
+              sizeof(field_desc_t),                                                             \
+     .name = #StructName,                                                                       \
+     .fields = (const field_desc_t[]){FieldsMacro(StructName, FIELD_DESC, ARRAY_DESC)}},
+
+#define ACTION_V(name) {TYPE_ID_NONE, 0, #name},
+#define ACTION_T(name, type) {TYPE_ID_##type, 0, #name},
+#define ACTION_A(name, type, ...) {TYPE_ID_##type, 1, #name},
+// clang-format off
+#define ZP_GENERATE_SCHEMA(TypesMacro, ActionsMacro)                    \
+    __attribute__((unused))                                             \
+    static inline void __zp_require_top_level(void) {}                  \
+                                                                        \
+    static const struct_desc_t __zp_types[] = {                         \
+        TypesMacro(MAKE_STRUCT_META)                                    \
+    };                                                                  \
+    static const action_desc_t __zp_actions[] = {                       \
+        ActionsMacro(ACTION_V, ACTION_T, ACTION_A)                      \
+    };                                                                  \
+                                                                        \
+    const zp_schema_t zp_schema = {                                     \
+        .types = __zp_types,                                            \
+        .type_count = sizeof(__zp_types) / sizeof(__zp_types[0]),       \
+        .actions = __zp_actions,                                        \
+        .action_count = sizeof(__zp_actions) / sizeof(__zp_actions[0])  \
+    };
+// clang-format on
