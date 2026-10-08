@@ -23,7 +23,11 @@ static StaticTask_t zp_rx_tcb;
 static uint8_t zp_rx_buffer[ZP_BUFFER_SIZE] __attribute__((aligned(4)));
 
 static int s_sock = -1;
-static const zp_schema_t* s_schema = NULL;
+static struct {
+    struct sockaddr_in addr;
+    uint16_t pool_size;
+    const zp_schema_t* schema;
+} s_cfg;
 
 void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
     zp_handshake_t hs = {0};
@@ -35,8 +39,6 @@ void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
     hs.action_count = schema->action_count;
 
     send(sock, &hs, sizeof(hs), 0);
-    ESP_LOGI(TAG, "Handshake header sent");
-
     for (int i = 0; i < schema->type_count; i++) {
         const struct_desc_t* t = &schema->types[i];
 
@@ -55,8 +57,6 @@ void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
         }
     }
 
-    ESP_LOGI(TAG, "Types sent");
-
     for (int i = 0; i < schema->action_count; i++) {
         const action_desc_t* a = &schema->actions[i];
 
@@ -74,116 +74,126 @@ static size_t get_type_size(uint8_t type_id) {
     if (type_id < sizeof(s_prim_sizes)) return s_prim_sizes[type_id];
 
     uint8_t idx = type_id - sizeof(s_prim_sizes) - 1;
-    if (s_schema && idx < s_schema->type_count)
-        return s_schema->types[idx].size;
+    if (s_cfg.schema && idx < s_cfg.schema->type_count)
+        return s_cfg.schema->types[idx].size;
 
     return 0;
 }
 
 static void zp_rx_task(void* pvParameters) {
-    int sock = (int)(intptr_t)pvParameters;
-    size_t buffered = 0;
+    (void)pvParameters;
 
-    ESP_LOGI(TAG, "Escuchando comandos en socket %d...", sock);
-
+    bool waiting_logged = false;
     while (1) {
-        ssize_t len =
-            recv(sock, zp_rx_buffer + buffered, ZP_BUFFER_SIZE - buffered, 0);
-
-        if (len < 0) {
-            ESP_LOGE(TAG, "Error en recv: errno %d", errno);
-            break;
-        } else if (len == 0) {
-            ESP_LOGW(TAG, "El servidor cerró la conexión");
-            break;
+        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Could not open socket: %d", sock);
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            continue;
         }
 
-        buffered += (size_t)len;
+        if (connect(sock, (struct sockaddr*)&s_cfg.addr, sizeof(s_cfg.addr)) !=
+            0) {
+            if (!waiting_logged) {
+                ESP_LOGW(TAG, "Waiting for server..");
+                waiting_logged = true;
+            }
+            close(sock);
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            continue;
+        }
 
-        while (buffered >= sizeof(zp_header_t)) {
-            const zp_header_t* hdr = (const zp_header_t*)zp_rx_buffer;
-            //
-            if (!s_schema || hdr->action >= s_schema->action_count) {
-                ESP_LOGW(TAG, "Invalid action: %u", hdr->action);
-                buffered = 0;
+        waiting_logged = false;
+
+        s_sock = sock;
+        send_handshake(sock, s_cfg.pool_size, s_cfg.schema);
+
+        size_t buffered = 0;
+        ESP_LOGI(TAG, "Listening to packets from socket %u", sock);
+
+        while (1) {
+            ssize_t len = recv(
+                sock, zp_rx_buffer + buffered, ZP_BUFFER_SIZE - buffered, 0
+            );
+
+            if (len < 0) {
+                ESP_LOGE(TAG, "recv error: errno %d", errno);
+                break;
+            } else if (len == 0) {
+                ESP_LOGW(TAG, "Server disconnected");
                 break;
             }
 
-            const action_desc_t* act = &s_schema->actions[hdr->action];
-            size_t payload_len = act->is_array ? (size_t)hdr->array_len *
-                                                     get_type_size(act->type)
-                                               : get_type_size(act->type);
+            buffered += (size_t)len;
 
-            size_t total_packet_len = sizeof(zp_header_t) + payload_len;
+            while (buffered >= sizeof(zp_header_t)) {
+                const zp_header_t* hdr = (const zp_header_t*)zp_rx_buffer;
 
-            if (total_packet_len > ZP_BUFFER_SIZE) {
-                ESP_LOGE(TAG, "Packet exceeds ZP_BUFFER_SIZE");
-                buffered = 0;
-                break;
+                if (!s_cfg.schema ||
+                    hdr->action >= s_cfg.schema->action_count) {
+                    ESP_LOGW(TAG, "Invalid action: %u", hdr->action);
+                    buffered = 0;
+                    break;
+                }
+
+                const action_desc_t* act = &s_cfg.schema->actions[hdr->action];
+                size_t payload_len =
+                    act->is_array
+                        ? (size_t)hdr->array_len * get_type_size(act->type)
+                        : get_type_size(act->type);
+
+                size_t total_packet_len = sizeof(zp_header_t) + payload_len;
+
+                if (total_packet_len > ZP_BUFFER_SIZE) {
+                    ESP_LOGE(TAG, "Packet exceeds ZP_BUFFER_SIZE");
+                    buffered = 0;
+                    break;
+                }
+
+                if (buffered < total_packet_len) break;
+
+                const uint8_t* payload = zp_rx_buffer + sizeof(zp_header_t);
+                if (!s_cfg.schema->dispatch(hdr, payload, payload_len)) {
+                    ESP_LOGW(
+                        TAG,
+                        "Action '%s' (ID: %u) received, but no hook registered",
+                        act->name,
+                        act->type
+                    );
+                }
+
+                size_t remaining = buffered - total_packet_len;
+                if (remaining > 0)
+                    memmove(
+                        zp_rx_buffer, zp_rx_buffer + total_packet_len, remaining
+                    );
+
+                buffered = remaining;
             }
-
-            if (buffered < total_packet_len) break;
-
-            const uint8_t* payload = zp_rx_buffer + sizeof(zp_header_t);
-            if (!s_schema->dispatch(hdr, payload, payload_len)) {
-                ESP_LOGW(
-                    TAG,
-                    "Action '%s' (ID: %u) received, but no hook registered",
-                    act->name,
-                    act->type
-                );
-            }
-
-            size_t remaining = buffered - total_packet_len;
-            if (remaining > 0)
-                memmove(
-                    zp_rx_buffer, zp_rx_buffer + total_packet_len, remaining
-                );
-
-            buffered = remaining;
         }
+
+        s_sock = -1;
+        close(sock);
+        vTaskDelay(pdMS_TO_TICKS(1500));
     }
-
-    close(sock);
-    vTaskDelete(NULL);
 }
 
 int zp_start(
     const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema
 ) {
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "Could not open socket: %d", sock);
-        return -1;
-    }
-
-    struct sockaddr_in addr = {
+    s_cfg.addr = (struct sockaddr_in){
         .sin_family = AF_INET,
         .sin_port = htons(port),
         .sin_addr.s_addr = inet_addr(ip),
     };
-
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
-        ESP_LOGE(TAG, "Could not connect to %s:%d", ip, port);
-        close(sock);
-        return -1;
-    }
-
-    s_sock = sock;
-    s_schema = schema;
-    send_handshake(sock, pool_size, schema);
+    s_cfg.pool_size = pool_size;
+    s_cfg.schema = schema;
 
     xTaskCreateStatic(
-        zp_rx_task,
-        "zp_rx",
-        ZP_STACK_SIZE,
-        (void*)(intptr_t)sock,
-        5,
-        zp_rx_stack,
-        &zp_rx_tcb
+        zp_rx_task, "zp_rx", ZP_STACK_SIZE, NULL, 5, zp_rx_stack, &zp_rx_tcb
     );
 
-    return sock;
+    return 0;
 }
 
 ssize_t zp_send(
