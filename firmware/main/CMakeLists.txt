@@ -6,4 +6,4 @@ idf_component_register(
   REQUIRES
     nvs_flash esp_event
     lwip esp_wifi esp_netif
-    zeropack)
+    driver zeropack)
