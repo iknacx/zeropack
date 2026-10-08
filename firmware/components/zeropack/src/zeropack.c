@@ -1,5 +1,6 @@
 #include "zeropack.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/unistd.h>
@@ -20,6 +21,7 @@ static const char* TAG = "ZP";
 static StackType_t zp_rx_stack[ZP_STACK_SIZE];
 static StaticTask_t zp_rx_tcb;
 static uint8_t zp_rx_buffer[ZP_BUFFER_SIZE] __attribute__((aligned(4)));
+static const zp_schema_t* s_schema = NULL;
 
 void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
     zp_handshake_t hs = {0};
@@ -62,13 +64,29 @@ void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
     }
 }
 
+#define ZP_PRIM_SIZE(type) sizeof(type),
+static const uint8_t s_prim_sizes[] = {0, ZP_PRIMITIVES(ZP_PRIM_SIZE)};
+
+static size_t get_type_size(uint8_t type_id) {
+    if (type_id == 0) return 0;
+    if (type_id < sizeof(s_prim_sizes)) return s_prim_sizes[type_id];
+
+    uint8_t idx = type_id - sizeof(s_prim_sizes) - 1;
+    if (s_schema && idx < s_schema->type_count)
+        return s_schema->types[idx].size;
+
+    return 0;
+}
+
 static void zp_rx_task(void* pvParameters) {
     int sock = (int)(intptr_t)pvParameters;
+    size_t buffered = 0;
 
     ESP_LOGI(TAG, "Escuchando comandos en socket %d...", sock);
 
     while (1) {
-        ssize_t len = recv(sock, zp_rx_buffer, sizeof(zp_rx_buffer), 0);
+        ssize_t len =
+            recv(sock, zp_rx_buffer + buffered, ZP_BUFFER_SIZE - buffered, 0);
 
         if (len < 0) {
             ESP_LOGE(TAG, "Error en recv: errno %d", errno);
@@ -78,8 +96,50 @@ static void zp_rx_task(void* pvParameters) {
             break;
         }
 
-        ESP_LOGI(TAG, "Recibidos %d bytes: ", (int)len);
-        ESP_LOG_BUFFER_HEX(TAG, zp_rx_buffer, len);
+        buffered += (size_t)len;
+
+        while (buffered >= sizeof(zp_header_t)) {
+            const zp_header_t* hdr = (const zp_header_t*)zp_rx_buffer;
+            //
+            if (!s_schema || hdr->action >= s_schema->action_count) {
+                ESP_LOGW(TAG, "Invalid action: %u", hdr->action);
+                buffered = 0;
+                break;
+            }
+
+            const action_desc_t* act = &s_schema->actions[hdr->action];
+            size_t payload_len = act->is_array ? (size_t)hdr->array_len *
+                                                     get_type_size(act->type)
+                                               : get_type_size(act->type);
+
+            size_t total_packet_len = sizeof(zp_header_t) + payload_len;
+
+            if (total_packet_len > ZP_BUFFER_SIZE) {
+                ESP_LOGE(TAG, "Packet exceeds ZP_BUFFER_SIZE");
+                buffered = 0;
+                break;
+            }
+
+            if (buffered < total_packet_len) break;
+
+            const uint8_t* payload = zp_rx_buffer + sizeof(zp_header_t);
+            if (!s_schema->dispatch(hdr, payload, payload_len)) {
+                ESP_LOGW(
+                    TAG,
+                    "Action '%s' (ID: %u) received, but no hook registered",
+                    act->name,
+                    act->type
+                );
+            }
+
+            size_t remaining = buffered - total_packet_len;
+            if (remaining > 0)
+                memmove(
+                    zp_rx_buffer, zp_rx_buffer + total_packet_len, remaining
+                );
+
+            buffered = remaining;
+        }
     }
 
     close(sock);
@@ -107,6 +167,7 @@ int zp_start(
         return -1;
     }
 
+    s_schema = schema;
     send_handshake(sock, pool_size, schema);
 
     xTaskCreateStatic(

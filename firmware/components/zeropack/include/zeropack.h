@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -60,7 +61,7 @@ typedef struct __attribute__((packed)) {
     uint16_t array_len : 15;
 } zp_header_t;
 
-typedef void (*zp_dispatch_fn_t)(
+typedef bool (*zp_dispatch_fn_t)(
     const zp_header_t* hdr, const uint8_t* payload, size_t len
 );
 
@@ -143,15 +144,17 @@ typedef struct {
     case name:                                          \
         if (__zp_callbacks[name]) {                     \
             ((zp_cb_##name##_t)__zp_callbacks[name])(); \
+            return true;                                \
         }                                               \
-        break;
+        return false;
 
 #define ZP_DISPATCH_T(name, type)                                           \
     case name:                                                              \
         if (__zp_callbacks[name] && len >= sizeof(type)) {                  \
             ((zp_cb_##name##_t)__zp_callbacks[name])((const type*)payload); \
+            return true;                                                    \
         }                                                                   \
-        break;
+        return false;
 
 #define ZP_DISPATCH_A(name, type, ...)                      \
     case name:                                              \
@@ -160,20 +163,21 @@ typedef struct {
             ((zp_cb_##name##_t)__zp_callbacks[name])(       \
                 (const type*)payload, hdr->array_len        \
             );                                              \
+            return true;                                    \
         }                                                   \
-        break;
+        return false;
 
 // clang-format off
 #define ZP_GENERATE_SCHEMA(TypesMacro, ActionsMacro)                    \
     void (*__zp_callbacks[ACTION_ID_MAX])(void) = {0};                  \
                                                                         \
-    static void __zp_dispatch(                                          \
+    static bool __zp_dispatch(                                          \
         const zp_header_t* hdr, const uint8_t* payload, size_t len      \
     ) {                                                                 \
         switch (hdr->action) {                                          \
             ActionsMacro(ZP_DISPATCH_V, ZP_DISPATCH_T, ZP_DISPATCH_A)   \
             default:                                                    \
-                break;                                                  \
+                return false;                                           \
         }                                                               \
     }                                                                   \
                                                                         \
