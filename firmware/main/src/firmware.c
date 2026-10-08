@@ -1,7 +1,9 @@
+#include <stdint.h>
 #include <sys/unistd.h>
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "esp_log_buffer.h"
 #include "wifi.h"
 #include "zeropack.h"
 
@@ -24,12 +26,16 @@
 ZP_DECLARE(TYPES, ACTIONS)
 ZP_GENERATE_SCHEMA(TYPES, ACTIONS)
 
+static const char* TAG = "app";
 #define ADDR "192.168.100.2"
 #define PORT 1234
 
-void app_main(void) {
-    static const char* TAG = "main";
+static void handle_echo(const uint8_t* data, uint16_t len) {
+    ESP_LOGI(TAG, "echo (%u bytes):", len);
+    ESP_LOG_BUFFER_HEX(TAG, data, len);
+}
 
+void app_main(void) {
     wifi_init();
 
     ESP_LOGI(TAG, "type count: %d", zp_schema.type_count);
@@ -52,6 +58,8 @@ void app_main(void) {
             a->is_array
         );
     }
+
+    zp_on_action(ACTION_ECHO, handle_echo);
 
     zp_start(ADDR, PORT, 0, &zp_schema);
 }

@@ -86,7 +86,9 @@ static void zp_rx_task(void* pvParameters) {
     vTaskDelete(NULL);
 }
 
-int zp_start(const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema) {
+int zp_start(
+    const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema
+) {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (sock < 0) {
         ESP_LOGE(TAG, "Could not open socket: %d", sock);
@@ -107,8 +109,42 @@ int zp_start(const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_
 
     send_handshake(sock, pool_size, schema);
 
-    xTaskCreateStatic(zp_rx_task, "zp_rx", ZP_STACK_SIZE, (void*)(intptr_t)sock, 5, zp_rx_stack,
-                      &zp_rx_tcb);
+    xTaskCreateStatic(
+        zp_rx_task,
+        "zp_rx",
+        ZP_STACK_SIZE,
+        (void*)(intptr_t)sock,
+        5,
+        zp_rx_stack,
+        &zp_rx_tcb
+    );
 
     return sock;
+}
+
+ssize_t zp_send(
+    int sock,
+    uint8_t action,
+    uint8_t type_id,
+    uint16_t len,
+    const void* payload,
+    size_t size
+) {
+    zp_header_t hdr = {
+        .action = action,
+        .type_id = type_id,
+        .is_array = (len > 0) ? 1 : 0,
+        .array_len = len,
+    };
+
+    if (payload == NULL || size == 0) {
+        return send(sock, &hdr, sizeof(zp_header_t), 0);
+    }
+
+    struct iovec iov[2] = {
+        {.iov_base = &hdr, .iov_len = sizeof(zp_header_t)},
+        {.iov_base = (void*)payload, .iov_len = size},
+    };
+
+    return lwip_writev(sock, iov, 2);
 }
