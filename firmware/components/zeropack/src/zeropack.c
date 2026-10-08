@@ -1,11 +1,25 @@
 #include "zeropack.h"
 
+#include <stdint.h>
 #include <string.h>
+#include <sys/unistd.h>
 
+#include "cc.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "portmacro.h"
+
+#define ZP_STACK_SIZE 4096
+#define ZP_BUFFER_SIZE 256
 
 static const char* TAG = "ZP";
+
+static StackType_t zp_rx_stack[ZP_STACK_SIZE];
+static StaticTask_t zp_rx_tcb;
+static uint8_t zp_rx_buffer[ZP_BUFFER_SIZE] __attribute__((aligned(4)));
 
 void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
     zp_handshake_t hs = {0};
@@ -46,4 +60,55 @@ void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
         send(sock, &a->is_array, sizeof(a->is_array), 0);
         send(sock, a->name, strlen(a->name) + 1, 0);
     }
+}
+
+static void zp_rx_task(void* pvParameters) {
+    int sock = (int)(intptr_t)pvParameters;
+
+    ESP_LOGI(TAG, "Escuchando comandos en socket %d...", sock);
+
+    while (1) {
+        ssize_t len = recv(sock, zp_rx_buffer, sizeof(zp_rx_buffer), 0);
+
+        if (len < 0) {
+            ESP_LOGE(TAG, "Error en recv: errno %d", errno);
+            break;
+        } else if (len == 0) {
+            ESP_LOGW(TAG, "El servidor cerró la conexión");
+            break;
+        }
+
+        ESP_LOGI(TAG, "Recibidos %d bytes: ", (int)len);
+        ESP_LOG_BUFFER_HEX(TAG, zp_rx_buffer, len);
+    }
+
+    close(sock);
+    vTaskDelete(NULL);
+}
+
+int zp_start(const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema) {
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "Could not open socket: %d", sock);
+        return -1;
+    }
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(port),
+        .sin_addr.s_addr = inet_addr(ip),
+    };
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+        ESP_LOGE(TAG, "Could not connect to %s:%d", ip, port);
+        close(sock);
+        return -1;
+    }
+
+    send_handshake(sock, pool_size, schema);
+
+    xTaskCreateStatic(zp_rx_task, "zp_rx", ZP_STACK_SIZE, (void*)(intptr_t)sock, 5, zp_rx_stack,
+                      &zp_rx_tcb);
+
+    return sock;
 }

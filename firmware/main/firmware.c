@@ -1,8 +1,7 @@
 #include <stdint.h>
-#include <string.h>
+#include <sys/unistd.h>
 #include <unistd.h>
 
-#include "cc.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_event_base.h"
@@ -14,8 +13,6 @@
 #include "esp_wifi_types_generic.h"
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
-#include "lwip/inet.h"
-#include "lwip/sockets.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "portmacro.h"
@@ -86,30 +83,6 @@ void wifi_init_sta(void) {
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
-void tcp_connection(void) {
-    static const char* TAG = "tcp_conn";
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "Could not open socket: %d", sock);
-        return;
-    }
-
-    struct sockaddr_in addr;
-    addr.sin_addr.s_addr = inet_addr(ADDR);
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
-
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
-        ESP_LOGE(TAG, "Could not connect to %s:%d", ADDR, PORT);
-        close(sock);
-        return;
-    }
-
-    send_handshake(sock, 0, &zp_schema);
-
-    close(sock);
-}
-
 void app_main(void) {
     static const char* TAG = "main";
 
@@ -140,5 +113,5 @@ void app_main(void) {
         ESP_LOGI(TAG, "action %s (payload type: %d, array?: %d)", a->name, a->type, a->is_array);
     }
 
-    tcp_connection();
+    zp_start(ADDR, PORT, 0, &zp_schema);
 }

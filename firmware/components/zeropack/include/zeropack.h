@@ -128,4 +128,4 @@ typedef struct __attribute__((packed)) {
     };
 // clang-format on
 
-void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema);
+int zp_start(const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema);
