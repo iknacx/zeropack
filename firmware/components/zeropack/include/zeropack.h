@@ -100,7 +100,7 @@ typedef struct {
 #define ZP_CB_TYPE_V(name) typedef void (*zp_cb_##name##_t)(void);
 #define ZP_CB_TYPE_T(name, type) \
     typedef void (*zp_cb_##name##_t)(const type* data);
-#define ZP_CB_TYPE_A(name, type, ...) \
+#define ZP_CB_TYPE_A(name, type) \
     typedef void (*zp_cb_##name##_t)(const type* data, uint16_t len);
 
 #define ZP_DECLARE_CALLBACKS(ActionsMacro)       \
@@ -119,7 +119,7 @@ typedef struct {
         return zp_send(name, TYPE_ID_##type, 0, data, sizeof(type)); \
     }
 
-#define ZP_SEND_FN_A(name, type, ...)                                    \
+#define ZP_SEND_FN_A(name, type)                                         \
     ZP_INLINE ssize_t __zp_emit_##name(const type* data, uint16_t len) { \
         return zp_send(                                                  \
             name, TYPE_ID_##type, len, data, (size_t)len * sizeof(type)  \
@@ -159,7 +159,7 @@ typedef struct {
 
 #define ACTION_V(name) {TYPE_ID_NONE, 0, #name},
 #define ACTION_T(name, type) {TYPE_ID_##type, 0, #name},
-#define ACTION_A(name, type, ...) {TYPE_ID_##type, 1, #name},
+#define ACTION_A(name, type) {TYPE_ID_##type, 1, #name},
 
 #define ZP_DISPATCH_V(name)                             \
     case name:                                          \
@@ -177,7 +177,7 @@ typedef struct {
         }                                                                   \
         return false;
 
-#define ZP_DISPATCH_A(name, type, ...)                      \
+#define ZP_DISPATCH_A(name, type)                           \
     case name:                                              \
         if (__zp_callbacks[name] &&                         \
             len >= (size_t)hdr->array_len * sizeof(type)) { \

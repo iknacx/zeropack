@@ -27,7 +27,7 @@
     V(ACTION_LED_ON)             \
     V(ACTION_LED_OFF)            \
     T(ACTION_LED_COLOR, color_t) \
-    A(ACTION_ECHO, u8, 16)
+    A(ACTION_ECHO, u8)
 
 // Finalizar con la creación de los tipos y acciones
 ZP_DECLARE(TYPES, ACTIONS)

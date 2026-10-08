@@ -85,13 +85,15 @@ export class ZeroPackSession {
 
     // 2. Acción de Array
     if (act.is_array) {
-      const payload =
-        typeof data === "string"
-          ? Buffer.from(data, "utf8")
-          : Buffer.from(data ?? []);
-      const elem_size = this.getTypeSize(act.type);
-      const len = elem_size > 0 ? Math.floor(payload.length / elem_size) : 0;
-      this.socket.write(this.buildPacket(act.id, act.type, true, len, payload));
+      const arr = Array.isArray(data) ? data : Array.from(data ?? []);
+      const size = this.getTypeSize(act.type);
+      const payload = Buffer.alloc(arr.length * size);
+
+      for (let i = 0; i < arr.length; i++) {
+        this.writeValue(payload, act.type, i * size, arr[i]);
+      }
+
+      this.socket.write(this.buildPacket(act.id, act.type, true, arr.length, payload));
       return;
     }
 
@@ -314,14 +316,11 @@ export class ZeroPackSession {
       const field_offset = base_offset + f.offset;
 
       if (f.length > 0) {
-        if (f.type === 1 && typeof val === "string") {
-          buf.write(val, field_offset, f.length, "utf8");
-        } else if (Array.isArray(val)) {
-          const elem_size = this.getTypeSize(f.type);
-          const count = Math.min(f.length, val.length);
-          for (let i = 0; i < count; i++) {
-            this.writeValue(buf, f.type, field_offset + i * elem_size, val[i]);
-          }
+        const arr = Array.isArray(val) ? val : Array.from(val ?? []);
+        const size = this.getTypeSize(f.type);
+        const count = Math.min(f.length, val.length);
+        for (let i = 0; i < count; i++) {
+          this.writeValue(buf, f.type, field_offset + i * size, arr[i]);
         }
       } else {
         this.writeValue(buf, f.type, field_offset, val);

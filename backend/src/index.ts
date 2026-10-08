@@ -27,7 +27,8 @@ rl.on("line", (line) => {
     const [r = 0, g = 0, b = 0] = parts.slice(1).map(Number);
     active_session.send("ACTION_LED_COLOR", { r, g, b });
   } else if (cmd === "echo") {
-    active_session.send("ACTION_ECHO", line.trim().slice(4).trim());
+    const text = line.trim().slice(4).trim();
+    active_session.send("ACTION_ECHO", Buffer.from(text));
   }
 
   rl.prompt();
