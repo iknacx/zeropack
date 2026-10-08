@@ -33,6 +33,8 @@ static const char* TAG = "app";
 static void handle_echo(const uint8_t* data, uint16_t len) {
     ESP_LOGI(TAG, "echo (%u bytes):", len);
     ESP_LOG_BUFFER_HEX(TAG, data, len);
+
+    zp_emit(ACTION_ECHO, data, len);
 }
 
 void app_main(void) {

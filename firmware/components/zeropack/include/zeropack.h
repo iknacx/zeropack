@@ -108,11 +108,32 @@ typedef struct {
         ZP_CB_TYPE_V, ZP_CB_TYPE_T, ZP_CB_TYPE_A \
     ) extern void (*__zp_callbacks[ACTION_ID_MAX])(void);
 
+#define ZP_INLINE __attribute__((unused, always_inline)) static inline
+#define ZP_SEND_FN_V(name)                              \
+    ZP_INLINE ssize_t __zp_emit_##name(void) {          \
+        return zp_send(name, TYPE_ID_NONE, 0, NULL, 0); \
+    }
+
+#define ZP_SEND_FN_T(name, type)                                     \
+    ZP_INLINE ssize_t __zp_emit_##name(const type* data) {           \
+        return zp_send(name, TYPE_ID_##type, 0, data, sizeof(type)); \
+    }
+
+#define ZP_SEND_FN_A(name, type, ...)                                    \
+    ZP_INLINE ssize_t __zp_emit_##name(const type* data, uint16_t len) { \
+        return zp_send(                                                  \
+            name, TYPE_ID_##type, len, data, (size_t)len * sizeof(type)  \
+        );                                                               \
+    }
+#define ZP_DECLARE_SENDERS(ActionsMacro) \
+    ActionsMacro(ZP_SEND_FN_V, ZP_SEND_FN_T, ZP_SEND_FN_A)
+
 #define ZP_DECLARE(TypesMacro, ActionsMacro) \
     ZP_DECLARE_STRUCTS(TypesMacro)           \
     ZP_DECLARE_TYPE_IDS(TypesMacro)          \
     ZP_DECLARE_ACTION_IDS(ActionsMacro)      \
-    ZP_DECLARE_CALLBACKS(ActionsMacro)
+    ZP_DECLARE_CALLBACKS(ActionsMacro)       \
+    ZP_DECLARE_SENDERS(ActionsMacro)
 
 #define zp_on_action(action_name, fn)                       \
     do {                                                    \
@@ -197,12 +218,13 @@ typedef struct {
     };
 // clang-format on
 
+#define zp_emit(action_name, ...) __zp_emit_##action_name(__VA_ARGS__)
+
 int zp_start(
     const char* ip, uint16_t port, uint16_t pool_size, const zp_schema_t* schema
 );
 
 ssize_t zp_send(
-    int sock,
     uint8_t action,
     uint8_t type_id,
     uint16_t len,

@@ -21,6 +21,8 @@ static const char* TAG = "ZP";
 static StackType_t zp_rx_stack[ZP_STACK_SIZE];
 static StaticTask_t zp_rx_tcb;
 static uint8_t zp_rx_buffer[ZP_BUFFER_SIZE] __attribute__((aligned(4)));
+
+static int s_sock = -1;
 static const zp_schema_t* s_schema = NULL;
 
 void send_handshake(int sock, uint16_t pool_size, const zp_schema_t* schema) {
@@ -167,6 +169,7 @@ int zp_start(
         return -1;
     }
 
+    s_sock = sock;
     s_schema = schema;
     send_handshake(sock, pool_size, schema);
 
@@ -184,13 +187,14 @@ int zp_start(
 }
 
 ssize_t zp_send(
-    int sock,
     uint8_t action,
     uint8_t type_id,
     uint16_t len,
     const void* payload,
     size_t size
 ) {
+    if (s_sock < 0) return -1;
+
     zp_header_t hdr = {
         .action = action,
         .type_id = type_id,
@@ -199,7 +203,7 @@ ssize_t zp_send(
     };
 
     if (payload == NULL || size == 0) {
-        return send(sock, &hdr, sizeof(zp_header_t), 0);
+        return send(s_sock, &hdr, sizeof(zp_header_t), 0);
     }
 
     struct iovec iov[2] = {
@@ -207,5 +211,5 @@ ssize_t zp_send(
         {.iov_base = (void*)payload, .iov_len = size},
     };
 
-    return lwip_writev(sock, iov, 2);
+    return lwip_writev(s_sock, iov, 2);
 }
